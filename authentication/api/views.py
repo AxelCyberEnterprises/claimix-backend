@@ -21,7 +21,7 @@ class AuthView(APIView):
             serializer.save()
             return Response(
                 {"msg": "Account created"},
-                status.HTTP_200_OK,
+                status.HTTP_201_CREATED,
             )
         else:
             return Response(
