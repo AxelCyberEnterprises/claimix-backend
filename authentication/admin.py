@@ -18,7 +18,7 @@ class CustomUserAdmin(UserAdmin):
         (
             None,
             {
-                "fields": ["email", "role"],
+                "fields": ["full_name", "email", "role"],
             },
         ),
 
@@ -29,7 +29,8 @@ class CustomUserAdmin(UserAdmin):
                     "is_active",
                     "is_staff",
                     "is_superuser",
-                    "groups"
+                    "groups",
+                    "user_permissions",
                 ]
             },
         ),
@@ -41,6 +42,7 @@ class CustomUserAdmin(UserAdmin):
             {
                 "classes": ["wide"],
                 "fields": [
+                    "full_name",
                     "email",
                     "role",
                     "password1",
@@ -51,7 +53,7 @@ class CustomUserAdmin(UserAdmin):
     ]
     search_fields = ["email"]
     ordering = ["email"]
-    filter_horizontal = []
+    filter_horizontal = ["groups", "user_permissions"]
 
 
 admin.site.register(CustomUser, CustomUserAdmin)

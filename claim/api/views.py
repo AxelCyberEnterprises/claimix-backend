@@ -1,11 +1,14 @@
 from drf_yasg.utils import swagger_auto_schema
 from datetime import date, time
+
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from  rest_framework import  status, generics
+from  rest_framework import  status, generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from claim.models import Claim
+from authentication.permissions import IsAdmin, IsManager, IsClaimAdjuster
 from  .serializer import ClaimSerializer, ClaimDetailSerializer
 
 from policy_holder.models import PolicySubscription
@@ -36,7 +39,14 @@ from policy_holder.models import PolicySubscription
 class ClaimListView(generics.ListCreateAPIView):
     queryset = Claim.objects.all()
     serializer_class = ClaimSerializer
-    permission_classes = [IsAuthenticated]
+
+class ClaimUpdateView(generics.UpdateAPIView):
+    queryset = Claim.objects.all()
+    serializer_class = ClaimSerializer
+
+class ClaimDeleteView(generics.DestroyAPIView):
+    queryset = Claim.objects.all()
+    serializer_class = ClaimSerializer
 
 class ClaimDetailView(APIView):
     def get(self, request, pk):
@@ -87,3 +97,26 @@ class ClaimDetailView(APIView):
             }
         }
         return  Response(data,status=status.HTTP_200_OK)
+
+class ClaimViewSet(viewsets.ModelViewSet):
+    '''
+    Viewset that provide action for claim Action
+    '''
+    queryset = Claim.objects.all()
+    serializer_class = ClaimSerializer
+
+    @action(detail=False)
+    def approve(self):
+        pass
+
+    def reject(self):
+        pass
+
+    def escalate(self):
+        pass
+
+    def follow_up_question(self):
+        pass
+
+    def edit_ai_information(self):
+        pass
