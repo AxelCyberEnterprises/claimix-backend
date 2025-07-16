@@ -62,3 +62,33 @@ class LoginSerializer(serializers.Serializer):
         attrs["user"] = user
         return attrs
 
+
+class StaffSerializer(serializers.ModelSerializer):
+    created_at = serializers.DateTimeField(format="%Y-%m-%d", read_only=True)
+    last_login = serializers.DateTimeField(format="%Y-%m-%d %I:%M %p", read_only=True)
+
+    class Meta:
+        model = CustomUser
+        fields = ["user_id","full_name", "email", "role","department", "status","created_at","last_login"]
+        read_only_fields = ["user_id","created_at","last_login"]
+
+
+class StaffAuditSerializer(StaffSerializer):
+    audit_logs = serializers.SerializerMethodField()
+
+    class Meta(StaffSerializer.Meta):
+        fields = StaffSerializer.Meta.fields + ['audit_logs']
+
+    def get_audit_logs(self, obj):
+        # Replace this with your actual audit retrieval logic
+        return [
+            {
+                "name": "Audit 1",
+
+            },
+            {
+                "name": "Audit 2",
+
+            }
+        ]
+
