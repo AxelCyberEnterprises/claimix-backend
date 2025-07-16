@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-#o5*o&9ppz)4#6hw005%+#8kyw$!z3powi+pqb8#=yao-fxy=&
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "").split(",")
 
 # Application definition
 
@@ -143,6 +143,8 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
     ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+    'PAGE_SIZE': 25
 
 }
 
@@ -153,4 +155,3 @@ DATABASES = {
     )
 }
 
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "").split(",")

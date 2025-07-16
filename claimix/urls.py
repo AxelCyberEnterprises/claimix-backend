@@ -25,6 +25,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path(f"{API_VERSION}user/", include("authentication.urls")),
     path(f"{API_VERSION}claim/", include("claim.urls")),
+    path(f"{API_VERSION}", include("policy_holder.urls")),
 
 ]
 if settings.DEBUG:
