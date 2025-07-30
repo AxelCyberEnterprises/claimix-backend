@@ -1,10 +1,5 @@
-.env
-.venv
-venv
-policyclone.csv
-policyholder_clone.csv
-
 # Environment
+.env
 .env.local
 .env.*
 
