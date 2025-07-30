@@ -200,6 +200,16 @@ class Orchestrator:
                 claim["completed_agents"] = done
                 self.save_claim(email, claim)
 
+    def mark_agent_complete_and_check(self, email):
+        with self._lock:
+            claim = self.claim(email)
+            completed = set(claim.get("completed_agents", []))
+            all_agents = set([INCIDENT_TYPE_TO_AGENT[i] for i in claim["incident_types"]])
+            # Already up to date?
+        if completed == all_agents and claim["stage"] == ClaimStage.AGENTS_RUNNING:
+            self.transition(email, ClaimStage.AGENTS_COMPLETE)
+
+
     # -------- follow-up -------------------
     def save_follow_up(self, email, agent, content):
         p = self.fpath(email, FOLLOW_UP_FILE)
@@ -313,6 +323,7 @@ class Orchestrator:
                                                               run_id=run.id,
                                                               tool_outputs=outs)
             self.mark_agent_complete(email, agent)
+            self.mark_agent_complete_and_check(email)
             self.transition(email, ClaimStage.REVIEW)
             return
 
@@ -365,13 +376,37 @@ class Orchestrator:
                 self.transition(email, ClaimStage.AGENTS_RUNNING)
                 stage = ClaimStage.AGENTS_RUNNING        
 
+        # if stage == ClaimStage.AGENTS_RUNNING:
+        #     agents = self.agents_to_run(email)
+        #     if user_msg.strip():
+        #         for a in agents:
+        #             self.save_agent_message(email, a, user_msg, role="user")
+        #     for a in agents:
+        #         self.run_assistant(email, a)
+
+        #     follow_path = self.fpath(email, FOLLOW_UP_FILE)
+        #     if os.path.exists(follow_path):
+        #         if run_follow_up_agent(email):
+        #             self.transition(email, ClaimStage.FOLLOWUP_REQUESTED)
+        #     elif not self.agents_to_run(email):
+        #         self.transition(email, ClaimStage.AGENTS_COMPLETE)
+
+
         if stage == ClaimStage.AGENTS_RUNNING:
             agents = self.agents_to_run(email)
             if user_msg.strip():
                 for a in agents:
                     self.save_agent_message(email, a, user_msg, role="user")
-            for a in agents:
-                self.run_assistant(email, a)
+
+            if agents:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=min(5, len(agents))) as executor:
+                    futures = [executor.submit(self.run_assistant, email, a) for a in agents]
+                    for fut in as_completed(futures):
+                        try:
+                            fut.result()
+                        except Exception as e:
+                            print(f"[orchestrate] Agent error: {e}")
 
             follow_path = self.fpath(email, FOLLOW_UP_FILE)
             if os.path.exists(follow_path):
@@ -381,13 +416,35 @@ class Orchestrator:
                 self.transition(email, ClaimStage.AGENTS_COMPLETE)
 
         elif stage == ClaimStage.FOLLOWUP_REQUESTED:
+            # if user_msg.strip():
+            #     agents = self.agents_to_run(email)
+            #     for a in agents:
+            #         self.save_agent_message(email, a, user_msg, role="user")
+            #     for a in agents:
+            #         self.run_assistant(email, a)
+
+            #     follow_path = self.fpath(email, FOLLOW_UP_FILE)
+            #     if os.path.exists(follow_path):
+            #         if not run_follow_up_agent(email):
+            #             self.transition(email, ClaimStage.AGENTS_RUNNING)
+            #     else:
+            #         self.transition(email, ClaimStage.AGENTS_RUNNING)
+
             if user_msg.strip():
                 agents = self.agents_to_run(email)
                 for a in agents:
                     self.save_agent_message(email, a, user_msg, role="user")
-                for a in agents:
-                    self.run_assistant(email, a)
-
+                
+                if agents:
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+                    with ThreadPoolExecutor(max_workers=min(5, len(agents))) as executor:
+                        futures = [executor.submit(self.run_assistant, email, a) for a in agents]
+                        for fut in as_completed(futures):
+                            try:
+                                fut.result()
+                            except Exception as e:
+                                print(f"[orchestrate][FOLLOWUP_REQUESTED] Agent error: {e}")
+                
                 follow_path = self.fpath(email, FOLLOW_UP_FILE)
                 if os.path.exists(follow_path):
                     if not run_follow_up_agent(email):
@@ -395,10 +452,10 @@ class Orchestrator:
                 else:
                     self.transition(email, ClaimStage.AGENTS_RUNNING)
 
-        elif stage == ClaimStage.AGENTS_COMPLETE:
-            self.transition(email, ClaimStage.COMPLETE)
+            elif stage == ClaimStage.AGENTS_COMPLETE:
+                self.transition(email, ClaimStage.COMPLETE)
 
-        return True
+            return True
 
 
 # Module-level helper for external import
