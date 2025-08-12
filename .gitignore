@@ -33,3 +33,5 @@ updated_layer.py
 .DS_Store
 .idea/
 .vscode/
+
+db.sqlite3
