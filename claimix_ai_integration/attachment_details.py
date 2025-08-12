@@ -20,8 +20,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pdf2image import convert_from_path
 
-from document_processor import process_and_update_claim_session
-from utils import (
+from .document_processor import process_and_update_claim_session
+from .utils import (
     SUPPORTED_IMAGE_EXTENSIONS,
     PDF_EXT,
     ensure_session_structure,

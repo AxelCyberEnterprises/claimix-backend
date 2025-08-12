@@ -32,8 +32,9 @@ class Claim(models.Model):
         ESCALATED = "Escalated", "Escalated"
 
     claim_id = models.CharField(max_length=20, unique=True, editable=False, primary_key=True)
-    policy = models.ForeignKey(Policy, on_delete=models.CASCADE, null=False, blank=False)
-    policy_holder = models.ForeignKey(PolicyHolder, on_delete=models.CASCADE, null=False, blank=False)
+    sender_email = models.EmailField(max_length=255, null=True, blank=True, help_text="Email address of the claim submitter")
+    policy = models.ForeignKey(Policy, on_delete=models.CASCADE, null=True, blank=True)
+    policy_holder = models.ForeignKey(PolicyHolder, on_delete=models.CASCADE, null=True, blank=True)
     full_name = models.CharField(max_length=255,null=False, blank=False)
     claim_type = models.CharField(max_length=255, choices=CLAIM_TYPE.choices, null=True, blank=True) # AI
     urgency = models.CharField(max_length=255, null=True, blank=True) # AI

@@ -1,36 +1,60 @@
 # orchestrator.py  (concurrent-ready version)
-import os, json, time, threading
-from typing import Dict, List
+import os
+import json
+import time
+import threading
+from enum import Enum
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from utils import (
+from .utils import (
     load_json, save_json, get_session_folder,
     load_claim_state, save_claim_state
 )
 
+# Import database helper
+try:
+    from .db_helper import get_or_create_claim, update_claim_stage, get_claim_context
+except ImportError as e:
+    print(f"[WARNING] Database helper import failed: {e}")
+    # Mock database functions for development
+    def get_or_create_claim(claim_data):
+        print(f"[MOCK] Would create/update claim: {claim_data}")
+        return None, False
+    
+    def update_claim_stage(claim_id, stage, additional_data=None):
+        print(f"[MOCK] Would update claim {claim_id} to stage {stage} with data: {additional_data}")
+        return True
+    
+    def get_claim_context(claim_id):
+        print(f"[MOCK] Would retrieve context for claim {claim_id}")
+        return None
+
 # agents & helpers (unchanged imports)
-from triage_agent       import run_triage
-from clarification_call import run_clarifying_question
-from attachment_details import generate_attachment_details
-from followup_agent     import run_follow_up_agent
-from accidental_and_glass import evaluate_accidental_damage_glass_claim
-from ancilliary            import evaluate_ancillary_property_claim
-from fire                  import evaluate_fire_incident_claim
-from general_exceptions    import evaluate_general_exceptions_claim
-from general_administrative import evaluate_admin_and_underwriting_claim
-from personal_belongings   import evaluate_personal_belongings_claim
-from personal_convenience  import evaluate_mobility_and_continuation_services_claim
-from personal_injury       import evaluate_injury_and_medical_assault_claim
-from theft                 import evaluate_theft_incident_claim
-from third_party_injury    import evaluate_bodily_injury_fatality_claim
-from third_party_legal     import evaluate_legal_costs_and_statutory_payments_claim
-from third_party_liability import evaluate_special_liability_situations_claim
-from third_party_property  import evaluate_third_party_property_damage_claim
-from Vehicle_security      import evaluate_security_and_condition_compliance_claim
-from Vehicle_usage         import evaluate_territorial_and_usage_claim
+from .triage_agent       import run_triage
+from .clarification_call import run_clarifying_question
+from .attachment_details import generate_attachment_details
+from .followup_agent     import run_follow_up_agent
+from .accidental_and_glass import evaluate_accidental_damage_glass_claim
+from .ancilliary            import evaluate_ancillary_property_claim
+from .fire                  import evaluate_fire_incident_claim
+from .general_exceptions    import evaluate_general_exceptions_claim
+from .general_administrative import evaluate_admin_and_underwriting_claim
+from .personal_belongings   import evaluate_personal_belongings_claim
+from .personal_convenience  import evaluate_mobility_and_continuation_services_claim
+from .personal_injury       import evaluate_injury_and_medical_assault_claim
+from .theft                 import evaluate_theft_incident_claim
+from .third_party_injury    import evaluate_bodily_injury_fatality_claim
+from .third_party_legal     import evaluate_legal_costs_and_statutory_payments_claim
+from .third_party_liability import evaluate_special_liability_situations_claim
+from .third_party_property  import evaluate_third_party_property_damage_claim
+from .Vehicle_security      import evaluate_security_and_condition_compliance_claim
+from .Vehicle_usage         import evaluate_territorial_and_usage_claim
 
 load_dotenv()
 
@@ -134,11 +158,27 @@ class Orchestrator:
         self._lock  = threading.Lock()  # protects shared file writes
 
     # -------- basic file helpers ----------
-    def folder(self, email): return get_session_folder(email)
-    def fpath(self, email, fname): return os.path.join(self.folder(email), fname)
-    def pending_dir(self, email): return os.path.join(self.folder(email), PENDING_DIR)
-    def pending_path(self, email, agent): return os.path.join(self.pending_dir(email),
-                                                             PENDING_FILE_TEMPLATE.format(agent))
+    def get_claim_id(self, email):
+        """Get the claim ID for an email, generating one if needed."""
+        claim_file = os.path.join(SESSIONS_DIR, email, CLAIM_FILE)
+        if os.path.exists(claim_file):
+            claim_data = load_json(claim_file)
+            return claim_data.get('claim_id', email)  # Fallback to email if no claim_id
+        return email
+
+    def folder(self, email):
+        """Get the session folder path, using the claim ID if available."""
+        claim_id = self.get_claim_id(email)
+        return get_session_folder(claim_id)
+        
+    def fpath(self, email, fname): 
+        return os.path.join(self.folder(email), fname)
+        
+    def pending_dir(self, email): 
+        return os.path.join(self.folder(email), PENDING_DIR)
+        
+    def pending_path(self, email, agent): 
+        return os.path.join(self.pending_dir(email), PENDING_FILE_TEMPLATE.format(agent))
 
     # -------- initial state ---------------
     def init_context(self, email):
@@ -147,38 +187,121 @@ class Orchestrator:
             save_json(p, {"conversation_history": [], "attachment_details": {},
                           "last_updated": time.time()})
 
-    def init_claim(self, email):
-        p = self.fpath(email, CLAIM_FILE)
+    def init_claim(self, claim_id):
+        """Initialize a new claim with the given claim ID if it doesn't exist."""
+        # Create session folder using claim ID
+        session_folder = get_session_folder(claim_id)
+        os.makedirs(session_folder, exist_ok=True)
+        os.makedirs(os.path.join(session_folder, PENDING_DIR), exist_ok=True)
+        
+        p = os.path.join(session_folder, CLAIM_FILE)
+        
         if not os.path.exists(p):
-            save_json(p, {"stage": ClaimStage.NEW, "incident_types": {},
-                          "agents_run": [], "agent_threads": {},
-                          "completed_agents": []})
+            # Prepare initial claim data
+            claim_data = {
+                "claim_id": claim_id,
+                "stage": ClaimStage.NEW, 
+                "incident_types": {},
+                "agents_run": [], 
+                "agent_threads": {},
+                "completed_agents": [],
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "email": "",  # Will be updated with first message
+                "subject": ""  # Will be updated with first message
+            }
+            
+            # Save to file system
+            print(f"[ORCHESTRATOR] Saving claim data to file: {p}")
+            save_json(p, claim_data)
+            
+            # Create in database
+            print(f"[ORCHESTRATOR] Creating claim in database: {claim_id}")
+            try:
+                db_claim_data = {
+                    'claim_id': claim_id,
+                    'description': 'New claim created',
+                    'status': 'New',
+                    'created_at': datetime.now(),
+                    'updated_at': datetime.now()
+                }
+                get_or_create_claim(db_claim_data)
+                print(f"[DB] Created new claim in database: {claim_id}")
+            except Exception as e:
+                print(f"[DB ERROR] Failed to create claim in database: {e}")
+                # Continue with file system operations even if DB fails
 
     # -------- claim helpers ---------------
     def claim(self, email): return load_json(self.fpath(email, CLAIM_FILE))
     def save_claim(self, email, data): save_json(self.fpath(email, CLAIM_FILE), data)
 
-    def transition(self, email, new_stage):
+    def transition(self, email, new_stage, additional_data=None):
         c = self.claim(email)
+        print(f"[ORCHESTRATOR] Attempting to transition claim {c['claim_id']} from {c['stage']} to {new_stage}")
         if new_stage in ClaimStage.VALID_TRANSITIONS.get(c["stage"], []):
+            # Update database with new stage
+            try:
+                update_claim_stage(
+                    claim_id=c["claim_id"],
+                    stage=new_stage,
+                    additional_data=additional_data or {}
+                )
+            except Exception as e:
+                print(f"[DB ERROR] Failed to update claim stage in database: {e}")
+                # Continue with file system operations even if DB update fails
             c["stage"] = new_stage
             self.save_claim(email, c)
 
     # -------- context helpers -------------
-    def update_context(self, email, user_msg, attachments):
+    def update_context(self, email, user_msg, attachments=None):
+        print(f"[ORCHESTRATOR] Updating context for email: {email}")
+        if user_msg and user_msg.strip():
+            print(f"[ORCHESTRATOR] Processing user message: {user_msg[:100]}...")
+        if attachments:
+            print(f"[ORCHESTRATOR] Processing {len(attachments)} attachments")
+        """
+        Update the conversation context with a new user message and any attachments.
+        Also updates the claim in the database if this is new information.
+        """
         ctx_path = self.fpath(email, CONTEXT_FILE)
         ctx = load_json(ctx_path)
+        claim = self.claim(email)
+        
+        # Update file-based context
         if user_msg.strip():
-            ctx["conversation_history"].append({"role": "user", "content": user_msg,
-                                                "timestamp": time.time()})
+            ctx["conversation_history"].append({
+                "role": "user", 
+                "content": user_msg,
+                "timestamp": time.time()
+            })
+            
+            # If this is the first user message, update the claim description
+            if len(ctx["conversation_history"]) == 1 and claim["stage"] == ClaimStage.NEW:
+                try:
+                    update_claim_stage(
+                        claim_id=claim["claim_id"],
+                        stage=claim["stage"],
+                        additional_data={
+                            'description': user_msg[:500],  # Truncate long descriptions
+                            'updated_at': datetime.now()
+                        }
+                    )
+                except Exception as e:
+                    print(f"[DB ERROR] Failed to update claim description: {e}")
+        
         if attachments:
-            ctx["conversation_history"].append({"role": "user",
-                                                "content": f"[{len(attachments)} attachment(s)]",
-                                                "timestamp": time.time(),
-                                                "attachments": attachments})
+            ctx["conversation_history"].append({
+                "role": "user",
+                "content": f"[{len(attachments)} attachment(s)]",
+                "timestamp": time.time(),
+                "attachments": attachments
+            })
+            
+        # Handle attachment details if they exist
         ad_path = self.fpath(email, ATTACHMENT_DATA_FILE)
         if os.path.exists(ad_path):
             ctx["attachment_details"] = load_json(ad_path)
+            
         ctx["last_updated"] = time.time()
         save_json(ctx_path, ctx)
 
@@ -343,37 +466,83 @@ class Orchestrator:
                 if INCIDENT_TYPE_TO_AGENT[i] not in c["completed_agents"]]
 
     # ---------------- orchestrate ----------------------
-    def orchestrate(self, email: str, user_msg: str,
-                    attachments: List[str]):
-        self.init_claim(email)
-        self.init_context(email)
+    def orchestrate(self, sender_email: str, user_msg: str,
+                    attachments: List[str], claim_id: str = None):
+        """
+        Main orchestration method for claim processing.
+        
+        Args:
+            sender_email: The email address of the claim submitter
+            user_msg: The user's message content
+            attachments: List of attachment file paths
+            claim_id: Optional existing claim ID (for follow-ups)
+        """
+        print(f"\n{'='*80}")
+        print(f"[ORCHESTRATOR] Starting claim processing for email: {sender_email}")
+        if user_msg:
+            print(f"[ORCHESTRATOR] User message: {user_msg[:200]}...")
+        if attachments:
+            print(f"[ORCHESTRATOR] Attachments: {attachments}")
+        print(f"{'='*80}\n")
+        
+        # Generate claim ID if not provided
+        if not claim_id:
+            claim_id = f"CLM-{int(time.time())}"
+            print(f"[ORCHESTRATOR] Generated new claim ID: {claim_id}")
+        
+        # Initialize claim and context
+        self.init_claim(claim_id)
+        self.init_context(claim_id)
+        
+        # Get the claim and ensure it has a stage
+        claim = self.claim(claim_id)
+        if 'stage' not in claim:
+            print(f"[ORCHESTRATOR] Initializing new claim stage")
+            claim['stage'] = ClaimStage.NEW
+            claim['sender_email'] = sender_email  # Store sender email with claim
+            self.save_claim(claim_id, claim)
+            
+            # Ensure claim exists in database
+            try:
+                from .db_helper import get_or_create_claim
+                claim_data = {
+                    'claim_id': claim_id,
+                    'sender_email': sender_email,
+                    'description': user_msg[:500] if user_msg else 'New claim',
+                    'status': 'New',
+                    'claim_status': 'Pending'
+                }
+                db_claim, created = get_or_create_claim(claim_data)
+                print(f"[ORCHESTRATOR] {'Created' if created else 'Found'} claim in database: {db_claim.claim_id}")
+            except Exception as e:
+                print(f"[ORCHESTRATOR ERROR] Failed to create claim in database: {str(e)}")
 
         # REVIEW stage first
-        if self.claim(email)["stage"] == ClaimStage.REVIEW:
-            self.run_review_stage(email)
+        if claim["stage"] == ClaimStage.REVIEW:
+            self.run_review_stage(claim_id)
 
         # update context
-        self.update_context(email, user_msg, attachments)
+        self.update_context(claim_id, user_msg, attachments)
         if attachments:
-            generate_attachment_details(email, attachments)
-            self.update_context(email, "", [])
+            generate_attachment_details(claim_id, attachments)
+            self.update_context(claim_id, "", [])
 
-        claim = self.claim(email)
+        claim = self.claim(claim_id)
         stage = claim["stage"]
 
         if stage == ClaimStage.NEW:
-            run_clarifying_question(email, user_msg)
-            self.transition(email, ClaimStage.QUESTIONED)
+            run_clarifying_question(claim_id, user_msg)
+            self.transition(claim_id, ClaimStage.QUESTIONED)
 
         elif stage == ClaimStage.QUESTIONED:
             triage = run_triage(
-                email,
-                load_json(self.fpath(email, CONTEXT_FILE))["conversation_history"]
+                claim_id,
+                load_json(self.fpath(claim_id, CONTEXT_FILE))["conversation_history"]
             )
             if triage:
                 claim["incident_types"] = triage["incident_types"]
-                self.save_claim(email, claim)
-                self.transition(email, ClaimStage.AGENTS_RUNNING)
+                self.save_claim(claim_id, claim)
+                self.transition(claim_id, ClaimStage.AGENTS_RUNNING)
                 stage = ClaimStage.AGENTS_RUNNING        
 
         # if stage == ClaimStage.AGENTS_RUNNING:
@@ -461,6 +630,15 @@ class Orchestrator:
 # Module-level helper for external import
 orchestrator = Orchestrator()
 
-def orchestrate(email: str, user_message: str,
-                attachments: List[str]):
-    return orchestrator.orchestrate(email, user_message, attachments)
+def orchestrate(sender_email: str, user_message: str, attachments: List[str], claim_id: str = None):
+    """
+    Module-level wrapper for the orchestrator.
+    
+    Args:
+        sender_email: The email address of the claim submitter
+        user_message: The user's message
+        attachments: List of attachment file paths
+        claim_id: Optional existing claim ID (for follow-ups)
+    """
+    global orchestrator
+    return orchestrator.orchestrate(sender_email, user_message, attachments, claim_id)

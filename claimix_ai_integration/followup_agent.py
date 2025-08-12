@@ -19,12 +19,12 @@ from typing import Dict, Any, List
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from utils import (
+from .utils import (
     ensure_session_structure,
     load_json,
     save_json,
 )
-from advanced_imap_listener import send_email  # STARTTLS-only mail helper
+from .email_utils import send_email  # STARTTLS-only mail helper
 
 # ────────────────────────────────────────────────────────────────────────────
 # Environment / OpenAI client

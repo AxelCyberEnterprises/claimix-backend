@@ -15,12 +15,13 @@ from typing import Dict, List, Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from utils import (
+from .utils import (
     ensure_session_structure,
     load_json,
     save_json,
 )
-from advanced_imap_listener import send_email  # e-mail helper
+from .db_helper import get_claim_context
+from .email_utils import send_email  # e-mail helper
 
 # ────────────────────────────────────────────────────────────────────────────
 # Environment / OpenAI client
@@ -86,12 +87,27 @@ def _load_attachment_summary(session_folder: str) -> str:
 # ────────────────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────────────────
-def run_clarifying_question(sender_email: str, message_text: str) -> Dict[str, str]:
+def run_clarifying_question(claim_id: str, message_text: str) -> Dict[str, str]:
     """
     Build the clarifying question, e-mail it to the claimant and return the
     parsed JSON response.
+    
+    Args:
+        claim_id: The unique claim ID
+        message_text: The message text to analyze
     """
-    session_folder: str = ensure_session_structure(sender_email)
+    # Get the claim to access the sender's email
+    claim = get_claim_context(claim_id)
+    if not claim:
+        print(f"[CLARIFICATION] Error: Claim {claim_id} not found")
+        return {"error": "Claim not found"}
+        
+    sender_email = claim.get('sender_email')
+    if not sender_email:
+        print(f"[CLARIFICATION] Error: No sender email found for claim {claim_id}")
+        return {"error": "No sender email found"}
+        
+    session_folder: str = ensure_session_structure(claim_id)
 
     # user blocks for the LLM (initial message + attachment summary)
     user_blocks: List[Dict[str, Any]] = [{"type": "input_text", "text": message_text}]
@@ -123,10 +139,16 @@ def run_clarifying_question(sender_email: str, message_text: str) -> Dict[str, s
     # E-mail the question
     subject = "Quick clarification needed to process your claim"
     html_body = (
-        "<p>Thanks for reporting your incident. "
-        "To route your claim correctly, please answer the question below:</p>"
-        f"<p><b>{result['clarifying_question']}</b></p>"
+        f"<p>Dear Valued Customer,</p>"
+        f"<p>Thank you for submitting your claim (Reference: {claim_id}).</p>"
+        "<p>To help us process your claim more efficiently, we need a bit more information:</p>"
+        f"<p style='background-color: #f5f5f5; padding: 15px; border-left: 4px solid #4a90e2;'>"
+        f"<b>{result['clarifying_question']}</b>"
+        "</p>"
+        "<p>Please reply to this email with the requested information at your earliest convenience.</p>"
+        "<p>Best regards,<br>Axel Claims Team</p>"
     )
+    print(f"[CLARIFICATION] Sending email to {sender_email} for claim {claim_id}")
     send_email(to=sender_email, subject=subject, html=html_body)
 
     # Persist for reference (optional)

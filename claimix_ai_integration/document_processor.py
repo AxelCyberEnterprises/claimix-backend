@@ -21,7 +21,7 @@ from typing import Dict
 import pytesseract
 from pdf2image import convert_from_path
 from PIL import Image
-from utils import (
+from .utils import (
     SUPPORTED_IMAGE_EXTENSIONS,
     PDF_EXT,
     DOCUMENT_EXTS,

@@ -15,7 +15,7 @@ from typing import Any, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from utils import get_session_folder, load_json, save_json, get_claim_file
+from .utils import get_session_folder, load_json, save_json, get_claim_file
 
 # ────────────────────────────────────────────────────────────────────────────
 # Environment / OpenAI client
