@@ -149,9 +149,36 @@ REST_FRAMEWORK = {
 }
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-DATABASES = {
-    "default": dj_database_url.config(
-        default=DATABASE_URL
-    )
-}
 
+def can_connect_postgres(url):
+    try:
+        params = dj_database_url.parse(url)
+        conn = psycopg2.connect(
+            dbname=params['NAME'],
+            user=params['USER'],
+            password=params['PASSWORD'],
+            host=params['HOST'],
+            port=params['PORT'],
+            sslmode=params.get('OPTIONS', {}).get('sslmode', 'require')
+        )
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+if DATABASE_URL and can_connect_postgres(DATABASE_URL):
+    DATABASES = {
+        "default": dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=True
+        )
+    }
+else:
+    print("⚠️ Falling back to SQLite (Postgres not reachable)")
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
