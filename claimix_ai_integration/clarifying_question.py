@@ -1,3 +1,4 @@
+
 """
 clarifying_question.py
 ───────────────────────────────────────────────────────────────────────────────
@@ -16,11 +17,10 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from .utils import (
-    ensure_session_structure,
+    ensure_claim_session_structure_by_id,
     load_json,
     save_json,
 )
-from .db_helper import get_claim_context
 from .email_utils import send_email  # e-mail helper
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ def _load_attachment_summary(session_folder: str) -> str:
 # ────────────────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────────────────
-def run_clarifying_question(claim_id: str, message_text: str) -> Dict[str, str]:
+def run_clarifying_question(claim_id: str, message_text: str, sender_email: str) -> Dict[str, str]:
     """
     Build the clarifying question, e-mail it to the claimant and return the
     parsed JSON response.
@@ -95,19 +95,13 @@ def run_clarifying_question(claim_id: str, message_text: str) -> Dict[str, str]:
     Args:
         claim_id: The unique claim ID
         message_text: The message text to analyze
+        sender_email: The claimant's email address to send the question to
     """
-    # Get the claim to access the sender's email
-    claim = get_claim_context(claim_id)
-    if not claim:
-        print(f"[CLARIFICATION] Error: Claim {claim_id} not found")
-        return {"error": "Claim not found"}
-        
-    sender_email = claim.get('sender_email')
     if not sender_email:
-        print(f"[CLARIFICATION] Error: No sender email found for claim {claim_id}")
-        return {"error": "No sender email found"}
+        print(f"[CLARIFICATION] Error: No sender email provided for claim {claim_id}")
+        return {"error": "No sender email provided"}
         
-    session_folder: str = ensure_session_structure(claim_id)
+    session_folder: str = ensure_claim_session_structure_by_id(claim_id)
 
     # user blocks for the LLM (initial message + attachment summary)
     user_blocks: List[Dict[str, Any]] = [{"type": "input_text", "text": message_text}]
@@ -137,7 +131,8 @@ def run_clarifying_question(claim_id: str, message_text: str) -> Dict[str, str]:
     result: Dict[str, str] = json.loads(response.output_text)
 
     # E-mail the question
-    subject = "Quick clarification needed to process your claim"
+    # E-mail the question
+    subject = f"[{claim_id}] Quick clarification needed to process your claim"
     html_body = (
         f"<p>Dear Valued Customer,</p>"
         f"<p>Thank you for submitting your claim (Reference: {claim_id}).</p>"
@@ -163,12 +158,16 @@ def run_clarifying_question(claim_id: str, message_text: str) -> Dict[str, str]:
 if __name__ == "__main__":  # pragma: no cover
     import sys, pprint
 
-    if len(sys.argv) < 3:
-        print("usage: clarifying_question.py <email> <message text>")
+    if len(sys.argv) < 4:
+        print("usage: clarifying_question.py <claim_id> <email> <message text>")
         raise SystemExit(1)
 
+    claim_id = sys.argv[1]
+    email = sys.argv[2]
+    message = " ".join(sys.argv[3:])
+
     pprint.pprint(
-        run_clarifying_question(sys.argv[1], " ".join(sys.argv[2:])),
+        run_clarifying_question(claim_id, message, email),
         width=100,
         compact=True,
     )

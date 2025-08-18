@@ -1,14 +1,3 @@
-"""
-followup_agent.py
-───────────────────────────────────────────────────────────────────────────────
-Aggregates open questions from specialist agents, deduplicates them via the
-Follow-Up Assistant (OpenAI Responses API), e-mails the claimant a single
-clarification e-mail, and returns the JSON response.
-
-Public function
----------------
-run_follow_up_agent(email: str) -> dict
-"""
 
 from __future__ import annotations
 
@@ -20,11 +9,11 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from .utils import (
-    ensure_session_structure,
+    ensure_claim_session_structure_by_id,
     load_json,
     save_json,
 )
-from .email_utils import send_email  # STARTTLS-only mail helper
+from .email_utils import send_email  # SMTP mail helper
 
 # ────────────────────────────────────────────────────────────────────────────
 # Environment / OpenAI client
@@ -65,16 +54,19 @@ Return exactly one JSON object matching the provided schema – nothing else.
 # ────────────────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────────────────
-def run_follow_up_agent(email: str) -> Dict[str, Any]:
+def run_follow_up_agent(claim_id: str, recipient_email: str) -> Dict[str, Any] | None:
     """
     1. Reads <session>/follow_up.json (must exist and contain 'responses')
     2. Calls the OpenAI Follow-Up Assistant
     3. Saves the HTML to <session>/follow_up_email.json
-    4. Sends the e-mail to the claimant
+    4. Sends the e-mail to the claimant at recipient_email
     5. Removes follow_up.json (processed)
-    6. Returns the parsed JSON result
+    6. Returns the parsed JSON result or None if sending failed
     """
-    session_folder: str = ensure_session_structure(email)
+    if not recipient_email:
+        raise ValueError("recipient_email is required")
+
+    session_folder: str = ensure_claim_session_structure_by_id(claim_id)
     follow_up_input = os.path.join(session_folder, "follow_up.json")
 
     if not os.path.exists(follow_up_input):
@@ -109,23 +101,13 @@ def run_follow_up_agent(email: str) -> Dict[str, Any]:
     email_path = os.path.join(session_folder, "follow_up_email.json")
     save_json(email_path, result)
 
-    subject = "Further information required to process your claim"
-    if not send_email(to=email, subject=subject, html=email_html):
-        raise RuntimeError("Unable to send follow-up e-mail.")
+    subject = f"Further information required to process your claim [{claim_id}]"
+    sent_ok = send_email(to=recipient_email, subject=subject, html=email_html)
+    if not sent_ok:
+        print(f"[FOLLOW-UP] Failed to send follow-up email to {recipient_email}; will not transition stage.")
+        return None
 
     # ---------------- House-keeping ----------------
     os.remove(follow_up_input)  # mark as processed
 
     return result
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# Manual test helper
-# ────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":  # pragma: no cover
-    import sys, pprint
-    if len(sys.argv) != 2:
-        print("usage: followup_agent.py <claimant-email>")
-        raise SystemExit(1)
-
-    pprint.pprint(run_follow_up_agent(sys.argv[1]), width=100, compact=True)

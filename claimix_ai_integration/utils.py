@@ -1,11 +1,3 @@
-"""
-utils.py – Common helpers and constants used across the claim-processing
-code-base.
-
-The file is intentionally kept as a *single module* to avoid circular imports
-and to provide a canonical place for IO / path utilities and shared constants.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -13,6 +5,7 @@ import json
 import os
 import pathlib
 import time
+import re
 from typing import Any, Dict, Iterable, List, Set
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -90,7 +83,7 @@ def retry_load_json(
             time.sleep(delay_s)
 
 # ────────────────────────────────────────────────────────────────────────────
-# Session / claim helpers
+# Session / claim helpers (legacy: email-thread based)
 # ────────────────────────────────────────────────────────────────────────────
 
 def generate_thread_id(email: str) -> str:
@@ -138,6 +131,46 @@ def ensure_session_structure(email: str, *, extra_dirs: Iterable[str] | None = N
     return str(session_path)
 
 # ────────────────────────────────────────────────────────────────────────────
+# Claim-id centric helpers (canonical for new code)
+# ────────────────────────────────────────────────────────────────────────────
+
+def get_claim_session_folder(claim_id: str) -> str:
+    """
+    Canonical claim-id based session folder.
+    Creates sessions/claim_<claim_id>/attachments and returns the session path.
+    """
+    safe_id = re.sub(r"[^A-Za-z0-9_\-]", "_", str(claim_id))
+    folder = pathlib.Path(SESSIONS_DIR, f"claim_{safe_id}")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "attachments").mkdir(exist_ok=True)
+    return str(folder)
+
+
+def get_claim_file_by_id(claim_id: str) -> str:
+    """
+    Return absolute path to claim.json for a given claim_id,
+    creating a stub if it does not yet exist.
+    """
+    path = pathlib.Path(get_claim_session_folder(claim_id)) / "claim.json"
+    if not path.exists():
+        save_json(path, {"stage": "NEW", "claim_id": str(claim_id)})
+    return str(path)
+
+
+def ensure_claim_session_structure_by_id(
+    claim_id: str, *, extra_dirs: Iterable[str] | None = None
+) -> str:
+    """
+    Ensure the standard session folder exists for claim_id.
+    Optionally create extra sub-folders.
+    """
+    session_path = pathlib.Path(get_claim_session_folder(claim_id))
+    if extra_dirs:
+        for sub in extra_dirs:
+            (session_path / sub).mkdir(exist_ok=True)
+    return str(session_path)
+
+# ────────────────────────────────────────────────────────────────────────────
 # Attachment & processed-mail helpers
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -164,32 +197,65 @@ def save_processed(uid: str) -> None:
     processed = load_processed()
     processed.add(str(uid))
     save_json(PROCESSED_FILE, list(processed))
+def normalize_subject(subject: str) -> str:
+    """
+    Normalize the subject line for claim threading.
+    - Removes claim tags and reply/forward prefixes.
+    - Preserves key words to distinguish different claims.
+    """
+    s = subject.lower()
+    # Remove claim ID tags like [CLM-...]
+    s = re.sub(r"\[?clm-[a-z0-9-]+\]?", " ", s, flags=re.IGNORECASE)
+    # Remove common reply/forward prefixes at the start
+    s = re.sub(r"^(re|fwd|fw):\s*", "", s)
+    # Remove extra whitespace
+    s = re.sub(r"\s+", " ", s)
+    s = s.strip()
+    return s
 
-# ────────────────────────────────────────────────────────────────────────────
-# Public exports
-# ────────────────────────────────────────────────────────────────────────────
+def subject_fingerprint(sender_email: str, normalized_subject: str) -> str:
+    """
+    Compute a stable fingerprint for (sender_email, normalized_subject).
+    Used only for fallback lookup — not as claim_id.
+    """
+    base = f"{(sender_email or '').lower()}|{normalized_subject or ''}"
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
-__all__: List[str] = [
-    # constants
-    "SESSIONS_DIR",
-    "PROCESSED_FILE",
-    "MAX_ATTACHMENT_SIZE",
-    "DOCUMENT_EXTS",
-    "SUPPORTED_IMAGE_EXTENSIONS",
-    "PDF_EXT",
-    # JSON helpers
-    "load_json",
-    "save_json",
-    "retry_load_json",
-    # session / claim helpers
-    "generate_thread_id",
-    "get_session_folder",
-    "get_claim_file",
-    "load_claim_state",
-    "save_claim_state",
-    "ensure_session_structure",
-    # attachment helpers
-    "is_document",
-    "load_processed",
-    "save_processed",
+def claim_session_path_for_id(claim_id: str) -> str:
+    """
+    Return the expected session folder path for a claim_id without creating it.
+    """
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "", str(claim_id))
+    return str(pathlib.Path(SESSIONS_DIR, f"claim{safe_id}"))
+
+all: List[str] = [
+# constants
+"SESSIONS_DIR",
+"PROCESSED_FILE",
+"MAX_ATTACHMENT_SIZE",
+"DOCUMENT_EXTS",
+"SUPPORTED_IMAGE_EXTENSIONS",
+"PDF_EXT",
+# JSON helpers
+"load_json",
+"save_json",
+"retry_load_json",
+# session / claim helpers (legacy + new)
+"generate_thread_id",
+"get_session_folder",
+"get_claim_file",
+"load_claim_state",
+"save_claim_state",
+"ensure_session_structure",
+"get_claim_session_folder",
+"get_claim_file_by_id",
+"ensure_claim_session_structure_by_id",
+"claim_session_path_for_id",
+# subject helpers
+"normalize_subject",
+"subject_fingerprint",
+# attachment helpers
+"is_document",
+"load_processed",
+"save_processed",
 ]

@@ -1,13 +1,3 @@
-"""
-attachment_details.py
-───────────────────────────────────────────────────────────────────────────────
-Creates <session>/attachment_data.json by sending
-
-• text blocks   – OCR from PDFs, extracted text from DOCX/DOC/TXT
-• image blocks  – original photos and rendered PDF pages
-
-to the OpenAI Responses API, which returns structured attachment details.
-"""
 
 from __future__ import annotations
 
@@ -24,7 +14,7 @@ from .document_processor import process_and_update_claim_session
 from .utils import (
     SUPPORTED_IMAGE_EXTENSIONS,
     PDF_EXT,
-    ensure_session_structure,
+    ensure_claim_session_structure_by_id,
     save_json,
 )
 
@@ -73,8 +63,8 @@ def _encode_image(path: str) -> str:
 
 def _pdf_page_image_blocks(pdf_path: str) -> List[Dict]:
     blocks: List[Dict] = []
-    for page in convert_from_path(pdf_path, dpi=200):
-        tmp_jpg = f"{pdf_path}_page.jpg"
+    for page_index, page in enumerate(convert_from_path(pdf_path, dpi=200)):
+        tmp_jpg = f"{pdf_path}_page_{page_index}.jpg"
         page.save(tmp_jpg, "JPEG")
         blocks.append({"type": "input_image", "image_url": _encode_image(tmp_jpg)})
         os.remove(tmp_jpg)
@@ -106,15 +96,15 @@ def _build_image_blocks(session_folder: str, attachments: List[str]) -> List[Dic
 # ────────────────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────────────────
-def generate_attachment_details(sender_email: str, attachments: List[str]) -> Dict:
+def generate_attachment_details(claim_id: str, attachments: List[str]) -> Dict:
     """
     1. Runs extraction (document_processor)
     2. Builds text + image blocks per latest rules
     3. Calls OpenAI Responses API
     4. Saves attachment_data.json and returns the parsed result.
     """
-    session_folder = ensure_session_structure(sender_email)
-    parsed_docs = process_and_update_claim_session(sender_email)
+    session_folder = ensure_claim_session_structure_by_id(claim_id)
+    parsed_docs = process_and_update_claim_session(claim_id)
 
     user_blocks: List[Dict] = []
 
@@ -148,18 +138,3 @@ def generate_attachment_details(sender_email: str, attachments: List[str]) -> Di
     result = json.loads(response.output_text)
     save_json(os.path.join(session_folder, "attachment_data.json"), result)
     return result
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# Manual test helper
-# ────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    import sys, pprint
-
-    if len(sys.argv) < 3:
-        print("usage: attachment_details.py <email> <file> [file ...]")
-        raise SystemExit(1)
-
-    pprint.pprint(
-        generate_attachment_details(sys.argv[1], sys.argv[2:]), width=120, compact=True
-    )
