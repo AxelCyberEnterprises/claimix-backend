@@ -22,10 +22,11 @@ import pytesseract
 from pdf2image import convert_from_path
 from PIL import Image
 from .utils import (
-    SUPPORTED_IMAGE_EXTENSIONS,
-    PDF_EXT,
-    DOCUMENT_EXTS,
-    ensure_session_structure,
+SUPPORTED_IMAGE_EXTENSIONS,
+PDF_EXT,
+DOCUMENT_EXTS,
+ensure_claim_session_structure_by_id,
+save_json,  # added
 )
 
 OCR_PSM = "--oem 3 --psm 6"  # basic OCR config
@@ -48,12 +49,12 @@ def _extract_txt(path: str) -> str:
         return fh.read()
 
 
-def process_and_update_claim_session(sender_email: str) -> Dict[str, Dict[str, str]]:
+def process_and_update_claim_session(claim_id: str) -> Dict[str, Dict[str, str]]:
     """
     Run extraction for any new files in <session>/attachments, update
     parsed_docs.json, and return the full mapping.
     """
-    session_folder = ensure_session_structure(sender_email)
+    session_folder = ensure_claim_session_structure_by_id(claim_id)
     attach_dir = os.path.join(session_folder, "attachments")
     parsed_path = os.path.join(session_folder, "parsed_docs.json")
 
@@ -82,7 +83,7 @@ def process_and_update_claim_session(sender_email: str) -> Dict[str, Dict[str, s
 
         parsed[fname] = {"text": text}
 
-    with open(parsed_path, "w", encoding="utf-8") as fh:
-        json.dump(parsed, fh, indent=2, ensure_ascii=False)
+    # Use save_json to guarantee parent directory creation
+    save_json(parsed_path, parsed)
 
     return parsed

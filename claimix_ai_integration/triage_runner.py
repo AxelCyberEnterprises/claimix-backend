@@ -1,3 +1,4 @@
+
 """
 triage_runner.py   (formerly run_triage.py)
 ───────────────────────────────────────────────────────────────────────────────
@@ -15,7 +16,7 @@ from typing import Any, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .utils import get_session_folder, load_json, save_json, get_claim_file
+from .utils import load_json, save_json, get_claim_file_by_id
 
 # ────────────────────────────────────────────────────────────────────────────
 # Environment / OpenAI client
@@ -28,15 +29,15 @@ TRIAGE_ASSISTANT_ID: str | None = os.getenv("TRIAGE_ASSISTANT_ID")
 # ────────────────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────────────────
-def run_triage(email: str, conversation_context: Any) -> Dict[str, Any]:
+def run_triage(claim_id: str, conversation_context: Any) -> Dict[str, Any]:
     """
     Call the triage assistant, persist its findings into <session>/claim.json
     and return the updated claim dict.
 
     Parameters
     ----------
-    email : str
-        Claimant’s e-mail address.
+    claim_id : str
+        Claim identifier used to locate the session folder.
     conversation_context : Any
         The conversation history (whatever format the orchestrator maintains).
 
@@ -93,7 +94,7 @@ def run_triage(email: str, conversation_context: Any) -> Dict[str, Any]:
         raise RuntimeError("Triage assistant did not return the expected JSON.") from exc
 
     # 4) save into claim.json
-    claim_path = get_claim_file(email)
+    claim_path = get_claim_file_by_id(claim_id)
     claim_data = load_json(claim_path, default={})
     claim_data.update({
         "incident_types": incident_types,
@@ -111,7 +112,7 @@ def run_triage(email: str, conversation_context: Any) -> Dict[str, Any]:
 if __name__ == "__main__":  # pragma: no cover
     import sys, pprint
     if len(sys.argv) != 3:
-        print("usage: triage_runner.py <email> <conversation-json-string>")
+        print("usage: triage_runner.py <claim-id> <conversation-json-string>")
         raise SystemExit(1)
 
     pprint.pprint(
