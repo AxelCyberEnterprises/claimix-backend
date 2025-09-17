@@ -1,8 +1,13 @@
-from django.db import models
+from django.db import models, transaction
 from django.contrib.auth import get_user_model
 from django.db.models.fields import return_None
+from django.utils import timezone
+from django.db import transaction
 
 from policy_holder.models import Policy, PolicyHolder
+
+# Import the ClaimAuditLog model
+from .models.audit_logs import ClaimAuditLog
 
 User = get_user_model()
 
@@ -69,8 +74,76 @@ class Claim(models.Model):
 
         super().save(*args, **kwargs)
 
+    def update_status(self, new_status, user=None, reason=None, request=None):
+        """
+        Update the status of the claim and create an audit log entry.
+        
+        Args:
+            new_status (str): The new status to set
+            user (User, optional): The user making the change
+            reason (str, optional): Reason for the status change
+            request (Request, optional): The request object for additional context
+            
+        Returns:
+            tuple: (updated_claim, created_audit_log)
+        """
+        
+        old_status = self.status
+        
+        # Only proceed if status is actually changing
+        if old_status == new_status:
+            return self, None
+            
+        with transaction.atomic():
+            self.status = new_status
+            self.save(update_fields=['status', 'updated_at'])
+            
+            # Determine the action type based on status change
+            action = 'STATUS_CHANGE'
+            if new_status == self.STATUS.ESCALATED:
+                action = 'ESCALATED'
+            elif new_status == self.STATUS.RESOLVED:
+                action = 'RESOLVED'
+                
+            # Create audit log
+            audit_log = ClaimAuditLog.objects.create(
+                claim=self,
+                user=user,
+                action=action,
+                details={
+                    'old_status': old_status,
+                    'new_status': new_status,
+                    'reason': reason,
+                    'timestamp': timezone.now().isoformat(),
+                },
+                ip_address=request.META.get('REMOTE_ADDR') if request else None,
+                user_agent=request.META.get('HTTP_USER_AGENT') if request else None,
+            )
+            
+            return self, audit_log
+    
+    def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        old_status = None
+        
+        if not is_new:
+            old_instance = Claim.objects.filter(pk=self.pk).first()
+            if old_instance:
+                old_status = old_instance.status
+        
+        super().save(*args, **kwargs)
+        
+        # Log status changes on save if status was changed
+        if not is_new and old_status and hasattr(self, 'status') and old_status != self.status:
+            ClaimAuditLog.objects.create(
+                claim=self,
+                action='STATUS_CHANGE',
+                details={
+                    'old_status': old_status,
+                    'new_status': self.status,
+                    'timestamp': timezone.now().isoformat(),
+                }
+            )
+
     def __str__(self):
         return f"Claim {self.claim_id}"
-
-
-

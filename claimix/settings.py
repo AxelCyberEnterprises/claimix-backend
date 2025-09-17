@@ -46,12 +46,13 @@ INSTALLED_APPS = [
     'authentication',
     "policy_holder",
     "claim",
-
+    'audit',  # System-wide audit logging
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    'audit.middleware.AuditMiddleware',  # Added audit middleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',

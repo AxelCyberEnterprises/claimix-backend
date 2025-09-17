@@ -25,8 +25,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path(f"{API_VERSION}user/", include("authentication.urls")),
     path(f"{API_VERSION}claim/", include("claim.urls")),
+    path(f"{API_VERSION}audit/", include("audit.urls")),  
     path(f"{API_VERSION}", include("policy_holder.urls")),
-
 ]
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

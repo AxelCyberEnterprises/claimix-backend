@@ -26,13 +26,13 @@ from typing import List, Dict, Any, Optional
 from imap_tools import MailBox, AND
 from dotenv import load_dotenv
 
-from .utils import (
+from claimix_ai_integration.utils import (
     get_session_folder, is_document,
     load_processed, save_processed,
     MAX_ATTACHMENT_SIZE,
 )
-from .email_utils import send_email
-from .orchestrator import orchestrate
+from claimix_ai_integration.email_utils import send_email
+from claimix_ai_integration.orchestrator import orchestrate
 
 # ────────────────────────  environment  ──────────────────────────
 load_dotenv()
