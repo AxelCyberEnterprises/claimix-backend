@@ -10,7 +10,7 @@ class AuditUserSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = CustomUser
-        fields = ['id', 'email', 'full_name']
+        fields = ['user_id', 'email', 'full_name']
         read_only_fields = fields
 
 class ClaimAuditLogSerializer(serializers.ModelSerializer):

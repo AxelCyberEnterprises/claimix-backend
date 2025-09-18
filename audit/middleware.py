@@ -76,7 +76,7 @@ class AuditMiddleware:
             'process_time_seconds': round(process_time, 4),
             'request_method': request.method,
             'path': request.path,
-            'query_params': dict(request.GET),
+            'query_params': dict(request.GET) if hasattr(request, 'GET') else {},
             'response_status': response.status_code,
             'response_content_type': response.get('Content-Type', '').split(';')[0],
         }
